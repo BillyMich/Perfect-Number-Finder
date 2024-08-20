@@ -12,8 +12,8 @@ To compile and run this program, you need to have a C compiler installed on your
 2. Open a terminal and navigate to the directory containing the source code file.
 3. Compile the program using the following command:
     ```
-    gcc -o perfectNumberFinder perfectNumberFinder.c -lm -pthread
-    ```
+    gcc -O3 -pthread -o perfectNumberFinder perfectNumberFinder.c -lm
+
 4. Run the program by executing the generated binary file:
     ```
     ./perfectNumberFinder
