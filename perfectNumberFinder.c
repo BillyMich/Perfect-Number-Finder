@@ -4,18 +4,18 @@
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
+#include <gmp.h>
+#include <omp.h>
+
 
 #define MAX_THREADS 16
-#define QUEUE_SIZE 1000
+#define QUEUE_SIZE 1
 
-long long int nuberReading = 0;
-
+long long int nuberReading = 1;
 
 typedef struct {
-    long long int numbers[QUEUE_SIZE];
-    int front;
-    int rear;
-    int count;
+    mpz_t numbers[QUEUE_SIZE];
+    int front, rear, count;
     pthread_mutex_t mutex;
     pthread_cond_t cond_not_empty;
     pthread_cond_t cond_not_full;
@@ -25,43 +25,50 @@ TaskQueue queue;
 pthread_t threads[MAX_THREADS];
 clock_t program_start;
 
-int isPerfectNumber(long long int num) {
+int isPerfectNumber(mpz_t num) {
+    mpz_t sum, sqrtNum, quotient, remainder;
+    mpz_inits(sum, sqrtNum, quotient, remainder, NULL);
 
-    long long int sum = 1;  // Start with 1 since it's a divisor for all numbers
-    long long int sqrtNum = (long long int)sqrt(num);
+    mpz_set_ui(sum, 1);  // Start with 1 since it's a divisor for all numbers
+    mpz_sqrt(sqrtNum, num);
 
-    // If the number is even, check only even divisors
-    if (num % 2 == 0) {
-        for (register long long int i = 2; i <= sqrtNum; i++) {
-            if (num % i == 0) {
-                long long int quotient = num / i;
-                sum += i;
-                if (quotient != i) {
-                    sum += quotient;
+    int early_exit = 0;
+
+    // Use OpenMP to parallelize the loop
+    #pragma omp parallel
+    {
+        mpz_t local_sum, local_i, local_quotient, local_remainder;
+        mpz_inits(local_sum, local_i, local_quotient, local_remainder, NULL);
+        mpz_set_ui(local_sum, 0);
+
+        #pragma omp for
+        for (unsigned long long int i = 2; i <= mpz_get_ui(sqrtNum); i++) {
+            if (early_exit) continue;
+
+            mpz_set_ui(local_i, i);
+            mpz_mod(local_remainder, num, local_i);
+            if (mpz_cmp_ui(local_remainder, 0) == 0) {
+                mpz_div(local_quotient, num, local_i);
+                mpz_add(local_sum, local_sum, local_i);
+                if (mpz_cmp(local_quotient, local_i) != 0) {
+                    mpz_add(local_sum, local_sum, local_quotient);
                 }
-                if (sum > num) {
-                    return 0;
+                if (mpz_cmp(local_sum, num) > 0) {
+                    early_exit = 1;
                 }
             }
         }
-    } else { // For odd numbers, skip even divisors
-        for (register long long int i = 3; i <= sqrtNum; i += 2) {
-            if (num % i == 0) {
-                long long int quotient = num / i;
-                sum += i;
-                if (quotient != i) {
-                    sum += quotient;
-                }
-                if (sum > num) {
-                    return 0;
-                }
-            }
-        }
+
+        #pragma omp critical
+        mpz_add(sum, sum, local_sum);
+
+        mpz_clears(local_sum, local_i, local_quotient, local_remainder, NULL);
     }
 
-    return sum == num;
+    int result = (early_exit == 0 && mpz_cmp(sum, num) == 0);
+    mpz_clears(sum, sqrtNum, quotient, remainder, NULL);
+    return result;
 }
-
 
 void* worker(void* arg) {
     while (1) {
@@ -70,7 +77,8 @@ void* worker(void* arg) {
             pthread_cond_signal(&queue.cond_not_full);
             pthread_cond_wait(&queue.cond_not_empty, &queue.mutex);
         }
-        long long int num = queue.numbers[queue.front];
+        mpz_t num;
+        mpz_init_set(num, queue.numbers[queue.front]);
         queue.front = (queue.front + 1) % QUEUE_SIZE;
         queue.count--;
         pthread_mutex_unlock(&queue.mutex);
@@ -78,18 +86,19 @@ void* worker(void* arg) {
         if (isPerfectNumber(num)) {
             clock_t end = clock();
             double time_taken = ((double)(end - program_start)) / CLOCKS_PER_SEC;
-            printf("%lld is a perfect number. Time taken: %f seconds\n", num, time_taken);
+            gmp_printf("%Zd is a perfect number. Time taken: %.2f seconds\n", num, time_taken);
         }
+        mpz_clear(num);
     }
     return NULL;
 }
 
-void enqueue(long long int num) {
+void enqueue(mpz_t num) {
     pthread_mutex_lock(&queue.mutex);
     while (queue.count == QUEUE_SIZE) {
         pthread_cond_wait(&queue.cond_not_full, &queue.mutex);
     }
-    queue.numbers[queue.rear] = num;
+    mpz_init_set(queue.numbers[queue.rear], num);
     queue.rear = (queue.rear + 1) % QUEUE_SIZE;
     queue.count++;
     pthread_cond_signal(&queue.cond_not_empty);
@@ -98,10 +107,25 @@ void enqueue(long long int num) {
 
 void* pingCount(void* arg) {
     while (1) {
-        sleep(10);
+        sleep(5);
         printf("Count of numbers read: %lld\n", nuberReading);
+        printf("Count of numbers in queue: %d\n", queue.count);
     }
     return NULL;
+}
+
+void generatePerfectNumber(mpz_t result, long long int p) {
+    mpz_t mersennePrime;
+    mpz_init(mersennePrime);
+
+    mpz_set_ui(result, 1);
+    mpz_mul_2exp(result, result, p);
+    mpz_sub_ui(mersennePrime, result, 1);
+
+    mpz_mul_2exp(result, mersennePrime, p - 1);
+    gmp_printf("New sample to see if is Perfect number: %Zd\n", mersennePrime);
+
+    mpz_clear(mersennePrime);
 }
 
 int main() {
@@ -129,8 +153,11 @@ int main() {
     pthread_create(&ping_thread, NULL, pingCount, NULL);
 
     while (1) {
-        nuberReading+=2;
-        enqueue(nuberReading);
+        mpz_t perfectNumber;
+        mpz_init(perfectNumber);
+        generatePerfectNumber(perfectNumber, nuberReading++);
+        enqueue(perfectNumber);
+        mpz_clear(perfectNumber);
     }
 
     for (int i = 0; i < numThreads; i++) {

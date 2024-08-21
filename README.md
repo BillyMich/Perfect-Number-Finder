@@ -1,4 +1,4 @@
-# Perfect Number Finder
+# Perfect Number Finder (needs update!)
 
 This program is designed to find perfect numbers using multiple threads in C. A perfect number is a positive integer that is equal to the sum of its proper divisors (excluding the number itself). For example, 6 is a perfect number because its proper divisors (1, 2, 3) sum up to 6.
 
@@ -12,8 +12,8 @@ To compile and run this program, you need to have a C compiler installed on your
 2. Open a terminal and navigate to the directory containing the source code file.
 3. Compile the program using the following command:
     ```
-    gcc -O3 -pthread -o perfectNumberFinder perfectNumberFinder.c -lm
-
+     gcc -o perfectNumberFinder perfectNumberFinder.c -lgmp -lpthread -fopenmp -O3
+    ```
 4. Run the program by executing the generated binary file:
     ```
     ./perfectNumberFinder
