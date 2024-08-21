@@ -27,21 +27,41 @@ clock_t program_start;
 
 int isPerfectNumber(long long int num) {
 
-    long long int sum = 1;
-    long long int sqrtNum = sqrt(num);
+    long long int sum = 1;  // Start with 1 since it's a divisor for all numbers
+    long long int sqrtNum = (long long int)sqrt(num);
 
-    for (int i = 2; i <= sqrtNum; i++) {
-        if (num % i == 0) {
-            int quotient = num / i;
-            sum += i;
-            if (quotient != i) {  // Avoid adding the square root twice if `i * i == num`
-                sum += quotient;
+    // If the number is even, check only even divisors
+    if (num % 2 == 0) {
+        for (register long long int i = 2; i <= sqrtNum; i++) {
+            if (num % i == 0) {
+                long long int quotient = num / i;
+                sum += i;
+                if (quotient != i) {
+                    sum += quotient;
+                }
+                if (sum > num) {
+                    return 0;
+                }
+            }
+        }
+    } else { // For odd numbers, skip even divisors
+        for (register long long int i = 3; i <= sqrtNum; i += 2) {
+            if (num % i == 0) {
+                long long int quotient = num / i;
+                sum += i;
+                if (quotient != i) {
+                    sum += quotient;
+                }
+                if (sum > num) {
+                    return 0;
+                }
             }
         }
     }
 
     return sum == num;
 }
+
 
 void* worker(void* arg) {
     while (1) {
