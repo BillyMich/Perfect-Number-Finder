@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "gmp.h": "c"
+        "gmp.h": "c",
+        "pthread.h": "c",
+        "stdio.h": "c"
     }
 }

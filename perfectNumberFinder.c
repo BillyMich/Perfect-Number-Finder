@@ -1,3 +1,4 @@
+#include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -11,8 +12,6 @@
 #define MAX_THREADS 16
 #define QUEUE_SIZE 1
 
-long long int nuberReading = 1;
-
 typedef struct {
     mpz_t numbers[QUEUE_SIZE];
     int front, rear, count;
@@ -24,6 +23,15 @@ typedef struct {
 TaskQueue queue;
 pthread_t threads[MAX_THREADS];
 clock_t program_start;
+mpz_t numberReading;
+WINDOW *status_win, *log_win;
+int perfect_number_found = 0;
+
+// Function Prototypes
+void updateStatusWindow();
+void updateLogWindow(const char* log);
+
+
 
 int isPerfectNumber(mpz_t num) {
     mpz_t sum, sqrtNum, quotient, remainder;
@@ -67,10 +75,14 @@ int isPerfectNumber(mpz_t num) {
 
     int result = (early_exit == 0 && mpz_cmp(sum, num) == 0);
     mpz_clears(sum, sqrtNum, quotient, remainder, NULL);
-    return result;
+     return result;
 }
 
 void* worker(void* arg) {
+    char log[256];
+    snprintf(log, sizeof(log), "Worker thread started.");
+    updateLogWindow(log);
+
     while (1) {
         pthread_mutex_lock(&queue.mutex);
         while (queue.count == 0) {
@@ -84,11 +96,12 @@ void* worker(void* arg) {
         pthread_mutex_unlock(&queue.mutex);
 
         if (isPerfectNumber(num)) {
-            clock_t end = clock();
-            double time_taken = ((double)(end - program_start)) / CLOCKS_PER_SEC;
-            gmp_printf("%Zd is a perfect number. Time taken: %.2f seconds\n", num, time_taken);
+            gmp_snprintf(log, sizeof(log), "%Zd is a perfect number. Time taken: %ld  seconds", num, (clock() - program_start) / CLOCKS_PER_SEC);
+            ++perfect_number_found;
+            updateLogWindow(log);
         }
         mpz_clear(num);
+        
     }
     return NULL;
 }
@@ -107,33 +120,84 @@ void enqueue(mpz_t num) {
 
 void* pingCount(void* arg) {
     while (1) {
-        sleep(5);
-        printf("Count of numbers read: %lld\n", nuberReading);
-        printf("Count of numbers in queue: %d\n", queue.count);
+        sleep(1);
+        updateStatusWindow();
     }
     return NULL;
 }
 
-void generatePerfectNumber(mpz_t result, long long int p) {
+void generatePerfectNumber(mpz_t result, mpz_t p) {
     mpz_t mersennePrime;
     mpz_init(mersennePrime);
 
     mpz_set_ui(result, 1);
-    mpz_mul_2exp(result, result, p);
+    mpz_mul_2exp(result, result, mpz_get_ui(p));
     mpz_sub_ui(mersennePrime, result, 1);
 
-    mpz_mul_2exp(result, mersennePrime, p - 1);
-    gmp_printf("New sample to see if is Perfect number: %Zd\n", mersennePrime);
+    mpz_mul_2exp(result, mersennePrime, mpz_get_ui(p) - 1);
 
     mpz_clear(mersennePrime);
+}
+
+
+int isPrime(mpz_t num) {
+    mpz_t i, sqrtNum, remainder;
+    mpz_inits(i, sqrtNum, remainder, NULL);
+
+    if (mpz_cmp_ui(num, 2) < 0) {
+        mpz_clears(i, sqrtNum, remainder, NULL);
+        return 0;
+    }
+    if (mpz_cmp_ui(num, 2) == 0) {
+        mpz_clears(i, sqrtNum, remainder, NULL);
+        return 1;
+    }
+    if (mpz_even_p(num)) {
+        mpz_clears(i, sqrtNum, remainder, NULL);
+        return 0;
+    }
+
+    mpz_sqrt(sqrtNum, num);
+    for (mpz_set_ui(i, 3); mpz_cmp(i, sqrtNum) <= 0; mpz_add_ui(i, i, 2)) {
+        mpz_mod(remainder, num, i);
+        if (mpz_cmp_ui(remainder, 0) == 0) {
+            mpz_clears(i, sqrtNum, remainder, NULL);
+            return 0;
+        }
+    }
+
+    mpz_clears(i, sqrtNum, remainder, NULL);
+    return 1;
+}
+
+// Function to get the next prime number
+void getNextPrime(mpz_t next, mpz_t current) {
+    mpz_add_ui(next, current, 1);
+    while (!isPrime(next)) {
+        mpz_add_ui(next, next, 1);
+    }
+}
+
+void updateStatusWindow() {
+    wclear(status_win);
+    box(status_win, 0, 0);
+    mvwprintw(status_win, 1, 1, "Perfect Number Finder");
+    mvwprintw(status_win, 2, 1, "Running time: %ld seconds", (clock() - program_start) / CLOCKS_PER_SEC);
+    mvwprintw(status_win, 3, 1, "Perfect numbers found so far: %d", perfect_number_found);
+    wrefresh(status_win);
+}
+
+void updateLogWindow(const char* log) {
+    wprintw(log_win, "%s\n", log);
+    wrefresh(log_win);
 }
 
 int main() {
     int numThreads;
     printf("Enter the number of threads: ");
-    scanf("%d", &numThreads);
-    if (numThreads > MAX_THREADS) {
-        numThreads = MAX_THREADS;
+    if (scanf("%d", &numThreads) != 1) {
+        fprintf(stderr, "Error reading number of threads.\n");
+        return 1;
     }
 
     queue.front = 0;
@@ -145,6 +209,20 @@ int main() {
 
     program_start = clock();
 
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(FALSE);
+
+    int height, width;
+    getmaxyx(stdscr, height, width);
+
+    status_win = newwin(5, width, 0, 0);
+    log_win = newwin(height - 5, width, 5, 0);
+
+    box(status_win, 0, 0);
+    scrollok(log_win, TRUE);
+
     for (int i = 0; i < numThreads; i++) {
         pthread_create(&threads[i], NULL, worker, NULL);
     }
@@ -152,21 +230,28 @@ int main() {
     pthread_t ping_thread;
     pthread_create(&ping_thread, NULL, pingCount, NULL);
 
+    mpz_init_set_ui(numberReading, 2);
+
     while (1) {
         mpz_t perfectNumber;
         mpz_init(perfectNumber);
-        generatePerfectNumber(perfectNumber, nuberReading++);
+
+        if (!isPrime(numberReading)) {
+            getNextPrime(numberReading, numberReading);
+        }
+
+        generatePerfectNumber(perfectNumber, numberReading);
         enqueue(perfectNumber);
+        mpz_add_ui(numberReading, numberReading, 1); // Increment to the next number
+
         mpz_clear(perfectNumber);
     }
 
+    mpz_clear(numberReading);
+
     for (int i = 0; i < numThreads; i++) {
-        pthread_cancel(threads[i]);
         pthread_join(threads[i], NULL);
     }
-
-    pthread_cancel(ping_thread);
-    pthread_join(ping_thread, NULL);
 
     pthread_mutex_destroy(&queue.mutex);
     pthread_cond_destroy(&queue.cond_not_empty);
