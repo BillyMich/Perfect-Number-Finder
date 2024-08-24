@@ -22,7 +22,7 @@ typedef struct {
 
 TaskQueue queue;
 pthread_t threads[MAX_THREADS];
-clock_t program_start;
+time_t program_start;
 mpz_t numberReading;
 WINDOW *status_win, *log_win;
 int perfect_number_found = 0;
@@ -36,11 +36,12 @@ void updateLogWindow(const char* log);
 int isPerfectNumber(mpz_t num) {
     mpz_t sum, sqrtNum, quotient, remainder;
     mpz_inits(sum, sqrtNum, quotient, remainder, NULL);
-
     mpz_set_ui(sum, 1);  // Start with 1 since it's a divisor for all numbers
     mpz_sqrt(sqrtNum, num);
 
     int early_exit = 0;
+    time_t program_start = time(NULL);
+    char log[256];
 
     // Use OpenMP to parallelize the loop
     #pragma omp parallel
@@ -49,11 +50,14 @@ int isPerfectNumber(mpz_t num) {
         mpz_inits(local_sum, local_i, local_quotient, local_remainder, NULL);
         mpz_set_ui(local_sum, 0);
 
+        unsigned long long int i = mpz_get_ui(sqrtNum);
+
         #pragma omp for
-        for (unsigned long long int i = 2; i <= mpz_get_ui(sqrtNum); i++) {
+        for (unsigned long long int j = 0; j < i - 1; j++) {
             if (early_exit) continue;
 
-            mpz_set_ui(local_i, i);
+            unsigned long long int current_i = i - j;
+            mpz_set_ui(local_i, current_i);
             mpz_mod(local_remainder, num, local_i);
             if (mpz_cmp_ui(local_remainder, 0) == 0) {
                 mpz_div(local_quotient, num, local_i);
@@ -75,9 +79,8 @@ int isPerfectNumber(mpz_t num) {
 
     int result = (early_exit == 0 && mpz_cmp(sum, num) == 0);
     mpz_clears(sum, sqrtNum, quotient, remainder, NULL);
-     return result;
+    return result;
 }
-
 void* worker(void* arg) {
     char log[256];
     snprintf(log, sizeof(log), "Worker thread started.");
@@ -96,7 +99,7 @@ void* worker(void* arg) {
         pthread_mutex_unlock(&queue.mutex);
 
         if (isPerfectNumber(num)) {
-            gmp_snprintf(log, sizeof(log), "%Zd is a perfect number. Time taken: %ld  seconds", num, (clock() - program_start) / CLOCKS_PER_SEC);
+            gmp_snprintf(log, sizeof(log), "%Zd is a perfect number. Time taken: %.2f  seconds", num, difftime(time(NULL), program_start));
             ++perfect_number_found;
             updateLogWindow(log);
         }
@@ -182,8 +185,11 @@ void updateStatusWindow() {
     wclear(status_win);
     box(status_win, 0, 0);
     mvwprintw(status_win, 1, 1, "Perfect Number Finder");
-    mvwprintw(status_win, 2, 1, "Running time: %ld seconds", (clock() - program_start) / CLOCKS_PER_SEC);
-    mvwprintw(status_win, 3, 1, "Perfect numbers found so far: %d", perfect_number_found);
+    mvwprintw(status_win, 2, 1, "Running time: %.2f seconds", difftime(time(NULL), program_start));
+    char log[100256];
+    gmp_snprintf(log, sizeof(log), "Count p: %Zd", numberReading);
+
+    mvwprintw(status_win, 3, 1, "Perfect numbers found so far: %d ,%s", perfect_number_found, log);
     wrefresh(status_win);
 }
 
@@ -199,7 +205,7 @@ int main() {
         fprintf(stderr, "Error reading number of threads.\n");
         return 1;
     }
-
+    program_start = time(NULL);
     queue.front = 0;
     queue.rear = 0;
     queue.count = 0;
@@ -207,7 +213,6 @@ int main() {
     pthread_cond_init(&queue.cond_not_empty, NULL);
     pthread_cond_init(&queue.cond_not_full, NULL);
 
-    program_start = clock();
 
     initscr();
     cbreak();
