@@ -4,6 +4,10 @@
         "pthread.h": "c",
         "stdio.h": "c",
         "cmath": "c",
-        "time.h": "c"
+        "time.h": "c",
+        "perfect_number.h": "c",
+        "prime_number.h": "c",
+        "task_queue.h": "c",
+        "ui.h": "c"
     }
 }
