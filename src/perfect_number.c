@@ -14,14 +14,15 @@ int isPerfectNumber(mpz_t num) {
     mpz_sqrt(sqrtNum, num);
 
     int early_exit = 0;
+    unsigned long long int i = mpz_get_ui(sqrtNum);
 
-
+    #pragma omp parallel
+    {
         mpz_t local_sum, local_i, local_quotient, local_remainder;
         mpz_inits(local_sum, local_i, local_quotient, local_remainder, NULL);
         mpz_set_ui(local_sum, 0);
 
-        unsigned long long int i = mpz_get_ui(sqrtNum);
-
+        #pragma omp for
         for (unsigned long long int j = 0; j < i - 1; j++) {
             if (early_exit) continue;
 
@@ -35,20 +36,25 @@ int isPerfectNumber(mpz_t num) {
                     mpz_add(local_sum, local_sum, local_quotient);
                 }
                 if (mpz_cmp(local_sum, num) > 0) {
+                    #pragma omp atomic write
                     early_exit = 1;
                 }
             }
         }
+
+        #pragma omp critical
         mpz_add(sum, sum, local_sum);
 
         mpz_clears(local_sum, local_i, local_quotient, local_remainder, NULL);
-    
+    }
+
     int result = (early_exit == 0 && mpz_cmp(sum, num) == 0);
     mpz_clears(sum, sqrtNum, quotient, remainder, NULL);
     return result;
 }
 
-void generatePerfectNumber(mpz_t result, mpz_t p) {
+void generatePerfectNumber(mpz_t result, mpz_t p)
+{
     mpz_t mersennePrime;
     mpz_init(mersennePrime);
 
